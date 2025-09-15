@@ -37,7 +37,12 @@ button:disabled { background:#aaa; cursor:not-allowed; }
 <p><b>Referral Link:</b> <input id="ref-link" readonly></p>        
 <button id="copy-referral">Copy Referral</button>        
 <h3>Tasks</h3>        
-<div id="tasks-list"></div>        
+<div id="tasks-list"></div>    
+<h3>Join Our Community</h3>
+<p>Join our WhatsApp group to get updates directly!</p>
+<a href="https://chat.whatsapp.com/B7zi2ht2m32BVgU7CYAOAD" target="_blank">
+  <button>Join WhatsApp Group</button>
+</a>
 <h3>Upload Image</h3>        
 <input type="file" id="image-file" accept="image/*">        
 <button id="upload-btn">Upload</button>        
@@ -71,7 +76,24 @@ messagingSenderId: "339879913614",
 appId: "1:339879913614:web:0d0e791f4cad7b48c181df",        
 measurementId: "G-EB4CJSEDX5"        
 };        
-const app = firebase.initializeApp(firebaseConfig);        
+const app = firebase.initializeApp(firebaseConfig);   
+// Hardcoded quiz tasks
+const quizTasks = [
+  {
+    id: "q1",
+    question: "I am just like you, but I am not like you. I am what you see, I do what you do, and the opposite too. I show you the truth but I am a lie. What am I?",
+    answer: "Reflection",
+    reward: 20,
+    attempts: {}
+  },
+  {
+    id: "q2",
+    question: "What gets wet when drying?",
+    answer: "Towel",
+    reward: 10,
+    attempts: {}
+  }
+];
 const auth = firebase.auth();        
 const db = firebase.firestore();    // Get referrer from URL    
 let urlParams = new URLSearchParams(window.location.search);    
@@ -140,18 +162,66 @@ const userCredential = await auth.signInWithEmailAndPassword(email,password);
 loadDashboard(userCredential.user.uid);
 }catch(e){ alert(e.message);}
 }
-
 // Load Dashboard
 async function loadDashboard(uid){
-document.getElementById("signup-page").classList.add("hidden");
-document.getElementById("login-page").classList.add("hidden");
-document.getElementById("dashboard").classList.remove("hidden");
-const doc = await db.collection("users").doc(uid).get();
-const data = doc.data();
-document.getElementById("user-name").innerText = data.name;
-document.getElementById("user-balance").innerText = data.balance;
-document.getElementById("ref-link").value = data.refLink;
-document.getElementById("tasks-list").innerHTML = "<p>No tasks yet</p>";
+  document.getElementById("signup-page").classList.add("hidden");
+  document.getElementById("login-page").classList.add("hidden");
+  document.getElementById("dashboard").classList.remove("hidden");
+
+  const doc = await db.collection("users").doc(uid).get();
+  const data = doc.data();
+
+  document.getElementById("user-name").innerText = data.name;
+  document.getElementById("user-balance").innerText = data.balance;
+  document.getElementById("ref-link").value = data.refLink;
+
+// Load Tasks from hardcoded quizTasks
+let tasksHtml = '';
+quizTasks.forEach(task => {
+  tasksHtml += `
+    <div class="task">
+      <h3>${task.question}</h3>
+      <input type="text" id="answer-${task.id}" placeholder="Type your answer">
+      <button onclick="submitQuizAnswer('${task.id}')">Submit</button>
+      <p>Reward: ₦${task.reward}</p>
+    </div>
+  `;
+});
+document.getElementById("tasks-list").innerHTML = tasksHtml;
+
+  // Load uploaded images
+  
+async function submitQuizAnswer(taskId){
+  const input = document.getElementById(`answer-${taskId}`);
+  const statusEl = document.getElementById(`status-${taskId}`);
+  const userAnswer = input.value.trim();
+  if(!userAnswer){ alert("Please type an answer"); return; }
+
+  const task = quizTasks.find(t => t.id === taskId);
+  if(!task) return;
+
+  const user = auth.currentUser;
+  if(!task.attempts[user.uid]) task.attempts[user.uid] = 0;
+
+  if(task.attempts[user.uid] >= 2){
+    statusEl.innerText = "You have used all attempts for this question";
+    return;
+  }
+
+  if(userAnswer.toLowerCase() === task.answer.toLowerCase()){
+    // Correct
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    const userData = userDoc.data();
+    const newBalance = (userData.balance || 0) + task.reward;
+    await db.collection("users").doc(user.uid).update({ balance: newBalance });
+    statusEl.innerText = `Correct! ₦${task.reward} added to your balance`;
+  } else {
+    statusEl.innerText = "Incorrect answer. Try again!";
+  }
+
+  task.attempts[user.uid]++;
+  loadDashboard(user.uid);
+}
 
 const uploadDiv = document.getElementById("upload-history");
 uploadDiv.innerHTML='';
