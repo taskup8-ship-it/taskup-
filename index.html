@@ -1,0 +1,264 @@
+<!DOCTYPE html>  <html lang="en">    <head>      <meta charset="UTF-8">        <meta name="viewport" content="width=device-width, initial-scale=1.0">        
+<title>Taskup</title>        
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>        
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>        
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>        
+<style>        
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f9f9f9; }        
+.container { max-width:400px; margin:20px auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }        
+h2 { text-align:center; }        
+input, select, button { width:100%; padding:10px; margin:8px 0; border:1px solid #ccc; border-radius:5px; }        
+button { background:#007bff; color:white; cursor:pointer; }        
+button:disabled { background:#aaa; cursor:not-allowed; }        
+.hidden { display:none; }        
+.uploaded-image { width:100%; max-width:100px; margin:5px 0; }        
+</style>        
+</head>        
+<body>  <div id="signup-page" class="container">        
+<h2>Sign Up</h2>        
+<input type="text" id="signup-name" placeholder="Full Name" required>        
+<input type="email" id="signup-email" placeholder="Email" required>        
+<input type="password" id="signup-password" placeholder="Password" required>        
+<input type="text" id="signup-phone" placeholder="Phone Number" required>        
+<input type="text" id="signup-coupon" placeholder="Coupon Code (compulsory)" required>        
+<button id="signup-btn">Sign Up</button>        
+<p>Already have an account? <a href="#" id="show-login">Login</a></p>        
+</div>  <div id="login-page" class="container hidden">        
+<h2>Login</h2>        
+<input type="email" id="login-email" placeholder="Email" required>        
+<input type="password" id="login-password" placeholder="Password" required>        
+<button id="login-btn">Login</button>        
+<p><a href="#" id="forgot-password">Forgot Password?</a></p>        
+<p>Don’t have an account? <a href="#" id="show-signup">Sign Up</a></p>        
+</div>  <div id="dashboard" class="container hidden">        
+<h2>Dashboard</h2>        
+<p><b>Welcome:</b> <span id="user-name"></span></p>        
+<p><b>Balance:</b> ₦<span id="user-balance">0</span></p>        
+<p><b>Referral Link:</b> <input id="ref-link" readonly></p>        
+<button id="copy-referral">Copy Referral</button>        
+<h3>Tasks</h3>        
+<div id="tasks-list"></div>        
+<h3>Upload Image</h3>        
+<input type="file" id="image-file" accept="image/*">        
+<button id="upload-btn">Upload</button>        
+<div id="upload-history"></div>        
+<h3>Submit Bank Details</h3>        
+<select id="bank-name">        
+<option value="">Select Bank</option>        
+<option>GTBank</option>        
+<option>Access Bank</option>        
+<option>First Bank</option>        
+<option>UBA</option>        
+<option>Wema Bank</option>        
+<option>Zenith Bank</option>        
+<option>Kuda</option>        
+<option>Opay</option>        
+<option>Palmpay</option>        
+</select>        
+<input type="text" id="account-name" placeholder="Account Name">        
+<input type="text" id="account-number" placeholder="Account Number">        
+<button id="save-bank-btn">Save Bank Details</button>        
+<h3>Withdraw</h3>        
+<button id="withdraw-btn">Withdraw</button>        
+<button id="logout-btn">Logout</button>        
+</div>  <script>        
+const firebaseConfig = {        
+apiKey: "AIzaSyA9d2NfoAIM-zS9dA_aROw_KOaF0bws06g",        
+authDomain: "taskup-eb14d.firebaseapp.com",        
+projectId: "taskup-eb14d",        
+storageBucket: "taskup-eb14d.appspot.com",        
+messagingSenderId: "339879913614",        
+appId: "1:339879913614:web:0d0e791f4cad7b48c181df",        
+measurementId: "G-EB4CJSEDX5"        
+};        
+const app = firebase.initializeApp(firebaseConfig);        
+const auth = firebase.auth();        
+const db = firebase.firestore();    // Get referrer from URL    
+let urlParams = new URLSearchParams(window.location.search);    
+let referrer = urlParams.get('ref');    
+// Show signup page if someone came from a referral    
+if(referrer){    
+document.getElementById("signup-page").classList.remove("hidden");    
+document.getElementById("login-page").classList.add("hidden");    
+}  // Page toggles  
+const showLoginPage = () => { document.getElementById("signup-page").classList.add("hidden"); document.getElementById("login-page").classList.remove("hidden"); };  
+const showSignupPage = () => { document.getElementById("login-page").classList.add("hidden"); document.getElementById("signup-page").classList.remove("hidden"); };  // Sign Up
+async function signUp(){
+try{
+const name = document.getElementById("signup-name").value;
+const email = document.getElementById("signup-email").value;
+const password = document.getElementById("signup-password").value;
+const phone = document.getElementById("signup-phone").value;
+const coupon = document.getElementById("signup-coupon").value;
+if(!coupon){ alert("Coupon is required"); return; }
+
+const couponDoc = await db.collection("coupons").doc(coupon).get();
+if(!couponDoc.exists || couponDoc.data().used){ alert("Invalid or used coupon"); return; }
+
+const userCredential = await auth.createUserWithEmailAndPassword(email,password);
+const user = userCredential.user;
+
+let balance = 50; // welcome bonus
+let referralBonus = 500;
+
+// Give referrer bonus
+if(referrer){
+  const refDoc = await db.collection("users").doc(referrer).get();
+  if(refDoc.exists){
+    const refData = refDoc.data();
+    await db.collection("users").doc(referrer).update({ balance: (refData.balance||0)+referralBonus });
+  }
+}
+
+// Generate referral link dynamically
+const baseURL = window.location.origin;
+
+await db.collection("users").doc(user.uid).set({
+  name, 
+  email, 
+  phone, 
+  balance, 
+  refLink: `${baseURL}/?ref=${user.uid}`, 
+  bank: {}, 
+  welcomeBonus: true, 
+  uploads: []
+});
+
+await db.collection("coupons").doc(coupon).update({ used:true });
+alert("Signup successful, ₦50 welcome bonus added!");
+loadDashboard(user.uid);
+
+}catch(e){ alert(e.message);}
+}
+
+// Login
+async function login(){
+try{
+const email = document.getElementById("login-email").value;
+const password = document.getElementById("login-password").value;
+const userCredential = await auth.signInWithEmailAndPassword(email,password);
+loadDashboard(userCredential.user.uid);
+}catch(e){ alert(e.message);}
+}
+
+// Load Dashboard
+async function loadDashboard(uid){
+document.getElementById("signup-page").classList.add("hidden");
+document.getElementById("login-page").classList.add("hidden");
+document.getElementById("dashboard").classList.remove("hidden");
+const doc = await db.collection("users").doc(uid).get();
+const data = doc.data();
+document.getElementById("user-name").innerText = data.name;
+document.getElementById("user-balance").innerText = data.balance;
+document.getElementById("ref-link").value = data.refLink;
+document.getElementById("tasks-list").innerHTML = "<p>No tasks yet</p>";
+
+const uploadDiv = document.getElementById("upload-history");
+uploadDiv.innerHTML='';
+if(data.uploads && data.uploads.length>0){
+data.uploads.forEach(url=>{
+const img=document.createElement("img");
+img.src=url;
+img.className="uploaded-image";
+uploadDiv.appendChild(img);
+});
+}
+}
+// Withdraw
+async function withdraw() {
+const user = auth.currentUser;
+const doc = await db.collection("users").doc(user.uid).get();
+const data = doc.data();
+const day = new Date().getDay(); // Sunday = 0, Monday = 1
+if (!(day === 1 || day === 4)) {
+alert("Withdrawals allowed only on Monday & Thursday");
+return;
+}
+if (data.balance < 1000) {
+alert("Minimum withdrawal is ₦1000");
+return;
+}
+alert("Withdrawal request submitted successfully!");
+}
+
+// Logout
+function logout() {
+auth.signOut();
+document.getElementById("dashboard").classList.add("hidden");
+document.getElementById("login-page").classList.remove("hidden");
+}
+
+// Cloudinary Upload
+async function uploadImage() {
+const fileInput = document.getElementById("image-file");
+const file = fileInput.files[0];
+if (!file) { alert("Select a file first"); return; }
+
+const formData = new FormData();
+formData.append("file", file);
+formData.append("upload_preset", "taskup_upload");
+
+try {
+const res = await fetch("https://api.cloudinary.com/v1_1/dqogbf4ny/image/upload", {
+method: "POST",
+body: formData
+});
+const data = await res.json();
+const url = data.secure_url;
+
+const user = auth.currentUser;
+const doc = await db.collection("users").doc(user.uid).get();
+const uploads = doc.data().uploads || [];
+uploads.push(url);
+await db.collection("users").doc(user.uid).update({ uploads });
+
+loadDashboard(user.uid);
+alert("Image uploaded successfully!");
+
+} catch (e) {
+alert(e.message);
+}
+}
+
+// Copy referral
+function copyReferral() {
+const ref = document.getElementById("ref-link");
+ref.select();
+document.execCommand("copy");
+alert("Referral link copied!");
+}
+
+// Save bank details
+async function saveBankDetails() {
+const bank = document.getElementById("bank-name").value;
+const accName = document.getElementById("account-name").value;
+const accNumber = document.getElementById("account-number").value;
+const user = auth.currentUser;
+if (!bank || !accName || !accNumber) {
+alert("Fill all bank details");
+return;
+}
+
+await db.collection("users").doc(user.uid).update({
+bank: { bank, accName, accNumber }
+});
+alert("Bank details saved successfully!");
+}
+
+// Event listeners
+document.getElementById("signup-btn").addEventListener("click", signUp);
+document.getElementById("login-btn").addEventListener("click", login);
+document.getElementById("show-login").addEventListener("click", showLoginPage);
+document.getElementById("show-signup").addEventListener("click", showSignupPage);
+document.getElementById("forgot-password").addEventListener("click", e => {
+e.preventDefault();
+alert("Forgot Password feature coming soon!");
+});
+document.getElementById("logout-btn").addEventListener("click", logout);
+document.getElementById("copy-referral").addEventListener("click", copyReferral);
+document.getElementById("save-bank-btn").addEventListener("click", saveBankDetails);
+document.getElementById("withdraw-btn").addEventListener("click", withdraw);
+document.getElementById("upload-btn").addEventListener("click", uploadImage);
+</script>  </body>
+
+</html>    
